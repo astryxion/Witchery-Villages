@@ -43,6 +43,7 @@ public final class VillageWallGenerator
 
         byte[][] grid = new byte[maxX - minX + 3][maxZ - minZ + 3];
         short[][] heights = new short[maxX - minX + 3][maxZ - minZ + 3];
+        short[][] foundations = new short[maxX - minX + 3][maxZ - minZ + 3];
 
         for (StructureBounds bounds : boundsList)
         {
@@ -134,6 +135,77 @@ public final class VillageWallGenerator
             blockBaseMeta = 2;
         }
 
+        for (int k = 1; k < grid.length - 1; k++)
+        {
+            for (int z = 1; z < grid[k].length - 1; z++)
+            {
+                if (grid[k][z] >= 2)
+                {
+                    int dx = minX + k;
+                    int dz = minZ + z;
+                    int foundation = findFoundationY(world, dx, dz, yCoord);
+                    int startY = foundation + 9;
+
+                    foundations[k][z] = (short) Math.min(Math.max(foundation, 0), 32767);
+                    heights[k][z] = (short) Math.min(Math.max(startY, 0), 32767);
+                }
+            }
+        }
+
+        for (int k = 1; k < grid.length - 1; k++)
+        {
+            for (int z = 1; z < grid[k].length - 1; z++)
+            {
+                if (grid[k][z] >= 2 && foundations[k][z] > 0)
+                {
+                    int dx = minX + k;
+                    int dz = minZ + z;
+
+                    if (hasFluidAt(world, dx, dz, foundations[k][z]))
+                    {
+                        int nearFoundation = Math.max(Math.max(foundations[k - 1][z], foundations[k + 1][z]),
+                                Math.max(foundations[k][z + 1], foundations[k][z - 1]));
+
+                        if (nearFoundation > foundations[k][z])
+                        {
+                            foundations[k][z] = (short) nearFoundation;
+                            heights[k][z] = (short) Math.min(Math.max(nearFoundation + 9, 0), 32767);
+                        }
+                    }
+                }
+            }
+        }
+
+        for (int smooth = 0; smooth < 6; smooth++)
+        {
+            for (int k = 1; k < grid.length - 1; k++)
+            {
+                for (int z = 1; z < grid[k].length - 1; z++)
+                {
+                    if (grid[k][z] >= 2 && heights[k][z] > 0)
+                    {
+                        int near = Math.max(Math.max(heights[k - 1][z], heights[k + 1][z]), Math.max(heights[k][z + 1], heights[k][z - 1]));
+
+                        if (near > 0)
+                        {
+                            int startY = heights[k][z];
+
+                            if (near > startY)
+                            {
+                                startY = near - 1;
+                            }
+                            else if (near < startY)
+                            {
+                                startY = near + 1;
+                            }
+
+                            heights[k][z] = (short) Math.min(Math.max(startY, 0), 32767);
+                        }
+                    }
+                }
+            }
+        }
+
         int guardDist = 0;
 
         for (int k = 1; k < grid.length - 1; k++)
@@ -153,52 +225,33 @@ public final class VillageWallGenerator
                 {
                     int dx = minX + k;
                     int dz = minZ + z;
-                    int dy = yCoord;
-                    int solidCount = 0;
+                    int lowestY = foundations[k][z];
+                    int startY = heights[k][z];
 
-                    for (; dy > 1 && solidCount < 9; dy--)
+                    if (hasFluidAt(world, dx, dz, lowestY))
                     {
-                        solidCount = 0;
-                        for (int ddx = dx - 1; ddx <= dx + 1; ddx++)
-                        {
-                            for (int ddz = dz - 1; ddz <= dz + 1; ddz++)
-                            {
-                                IBlockState state = world.getBlockState(new BlockPos(ddx, dy, ddz));
-                                Material material = state.getMaterial();
-                                boolean replaceable = material.isReplaceable() || material == Material.PLANTS
-                                        || material == Material.VINE || material == Material.LEAVES;
+                        int nearFoundation = Math.max(Math.max(foundations[k - 1][z], foundations[k + 1][z]),
+                                Math.max(foundations[k][z + 1], foundations[k][z - 1]));
 
-                                if (state.isFullBlock() && !replaceable)
-                                {
-                                    solidCount++;
-                                }
+                        if (nearFoundation > 0)
+                        {
+                            lowestY = nearFoundation;
+                        }
+                        else
+                        {
+                            while (lowestY > 1 && hasFluidAt(world, dx, dz, lowestY - 1))
+                            {
+                                lowestY--;
                             }
                         }
                     }
 
-                    int startY = dy + 9;
-                    int near = Math.max(Math.max(heights[k - 1][z], heights[k + 1][z]), Math.max(heights[k][z + 1], heights[k][z - 1]));
-
-                    if (near > 0)
+                    if (startY <= lowestY)
                     {
-                        if (near > startY)
-                        {
-                            startY = near - 1;
-                        }
-                        else if (near < startY)
-                        {
-                            startY = near + 1;
-                        }
+                        continue;
                     }
 
-                    int lowestY = dy;
-
-                    if (startY - lowestY > 0)
-                    {
-                        heights[k][z] = (short) Math.min(Math.max(startY, 0), 32767);
-                    }
-
-                    for (dy = startY; dy > lowestY; dy--)
+                    for (int dy = startY; dy > lowestY; dy--)
                     {
                         if (dy == startY)
                         {
@@ -366,6 +419,89 @@ public final class VillageWallGenerator
         setBlock(world, x, y, z, block, meta, true);
     }
 
+    private static final int SOLID_THRESHOLD = 9;
+    private static final int SHALLOW_WATER_PROBE = 4;
+
+    private static int findFoundationY(World world, int dx, int dz, int yCoord)
+    {
+        for (int dy = yCoord; dy > 1; dy--)
+        {
+            if (hasFluidAt(world, dx, dz, dy))
+            {
+                int surface = dy;
+
+                for (int probe = surface; probe > surface - SHALLOW_WATER_PROBE && probe > 1; probe--)
+                {
+                    if (!hasFluidAt(world, dx, dz, probe) && countSolidAt(world, dx, dz, probe) >= SOLID_THRESHOLD)
+                    {
+                        return probe;
+                    }
+                }
+
+                return surface;
+            }
+
+            if (countSolidAt(world, dx, dz, dy) >= SOLID_THRESHOLD)
+            {
+                return dy;
+            }
+        }
+
+        return 1;
+    }
+
+    private static boolean hasFluidAt(World world, int dx, int dz, int y)
+    {
+        for (int ddx = dx - 1; ddx <= dx + 1; ddx++)
+        {
+            for (int ddz = dz - 1; ddz <= dz + 1; ddz++)
+            {
+                Material material = world.getBlockState(new BlockPos(ddx, y, ddz)).getMaterial();
+
+                if (material == Material.WATER || material == Material.LAVA)
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static int countSolidAt(World world, int dx, int dz, int y)
+    {
+        int solidCount = 0;
+
+        for (int ddx = dx - 1; ddx <= dx + 1; ddx++)
+        {
+            for (int ddz = dz - 1; ddz <= dz + 1; ddz++)
+            {
+                IBlockState state = world.getBlockState(new BlockPos(ddx, y, ddz));
+                Material material = state.getMaterial();
+                boolean replaceable = material.isReplaceable() || material == Material.PLANTS
+                        || material == Material.VINE || material == Material.LEAVES;
+
+                if (state.isFullBlock() && !replaceable)
+                {
+                    solidCount++;
+                }
+            }
+        }
+
+        return solidCount;
+    }
+
+    private static boolean canReplaceForWall(IBlockState existing)
+    {
+        Material material = existing.getMaterial();
+        return material.isReplaceable()
+                || material == Material.PLANTS
+                || material == Material.VINE
+                || material == Material.LEAVES
+                || material == Material.WATER
+                || material == Material.LAVA;
+    }
+
     private static void setBlock(World world, int x, int y, int z, Block block, int meta, boolean replaceSoftBlocks)
     {
         if (!replaceSoftBlocks)
@@ -375,9 +511,8 @@ public final class VillageWallGenerator
         }
 
         IBlockState existing = world.getBlockState(new BlockPos(x, y, z));
-        Material material = existing.getMaterial();
 
-        if (material.isReplaceable() || material == Material.PLANTS || material == Material.VINE || material == Material.LEAVES)
+        if (canReplaceForWall(existing))
         {
             world.setBlockState(new BlockPos(x, y, z), block.getStateFromMeta(meta), 2);
         }

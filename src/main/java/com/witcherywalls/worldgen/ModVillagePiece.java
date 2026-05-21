@@ -75,12 +75,11 @@ public abstract class ModVillagePiece extends StructureVillagePieces.Village
 
     protected void fill(World world, StructureBoundingBox bounds, int x, int y, int z, int w, int h, int d, Block block)
     {
-        IBlockState state = block.getDefaultState();
-        if (block instanceof BlockLog)
+        IBlockState state = getBiomeSpecificBlockState(block.getDefaultState());
+        if (state.getBlock() instanceof BlockLog)
         {
             state = state.withProperty(BlockLog.LOG_AXIS, getLogAxisForBox(w, h, d));
         }
-        state = getBiomeSpecificBlockState(state)
         fillWithBlocks(world, bounds, x, y, z, x + w - 1, y + h - 1, z + d - 1, state, state, false);
     }
 
@@ -99,7 +98,11 @@ public abstract class ModVillagePiece extends StructureVillagePieces.Village
 
     protected void placeStructureLog(World world, int structureMeta, int x, int y, int z, StructureBoundingBox box)
     {
-        IBlockState state = getBiomeSpecificBlockState(Blocks.LOG.getDefaultState().withProperty(BlockLog.LOG_AXIS, getLogAxisForStructureMeta(structureMeta)));
+        IBlockState state = getBiomeSpecificBlockState(Blocks.LOG.getDefaultState());
+        if (state.getBlock() instanceof BlockLog)
+        {
+            state = state.withProperty(BlockLog.LOG_AXIS, getLogAxisForStructureMeta(structureMeta));
+        }
         setBlockState(world, state, x, y, z, box);
     }
 

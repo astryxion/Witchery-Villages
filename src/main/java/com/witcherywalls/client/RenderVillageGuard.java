@@ -27,6 +27,7 @@ public class RenderVillageGuard extends RenderBiped<EntityVillageGuard>
                 hasArmorLayer = true;
                 break;
             }
+
         }
         if (!hasArmorLayer)
         {
