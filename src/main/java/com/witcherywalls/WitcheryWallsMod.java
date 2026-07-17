@@ -1,61 +1,44 @@
 package com.witcherywalls;
 
-import com.witcherywalls.proxy.CommonProxy;
-import com.witcherywalls.worldgen.VillageStructureRegistration;
+import com.witcherywalls.init.ModBlockEntities;
+import com.witcherywalls.init.ModBlocks;
+import com.witcherywalls.worldgen.VillageWallChunkHandler;
+import com.witcherywalls.worldgen.VillageWallScheduler;
+import net.minecraftforge.common.MinecraftForge;
+import net.minecraftforge.event.TickEvent;
+import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.fml.common.Mod;
-import net.minecraftforge.fml.common.Mod.EventHandler;
-import net.minecraftforge.fml.common.SidedProxy;
-import net.minecraftforge.fml.common.event.FMLInitializationEvent;
-import net.minecraftforge.fml.common.event.FMLPostInitializationEvent;
-import net.minecraftforge.fml.common.event.FMLPreInitializationEvent;
+import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
+import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-@Mod(
-        modid = WitcheryWallsMod.MODID,
-        name = WitcheryWallsMod.NAME,
-        version = WitcheryWallsMod.VERSION,
-        acceptedMinecraftVersions = "[1.12.2]"
-)
+@Mod(WitcheryWallsMod.MODID)
 public class WitcheryWallsMod
 {
     public static final String MODID = "witcherywalls";
-    public static final String NAME = "Witchery Walls";
-    public static final String VERSION = "1.0.0";
+    private static final Logger LOGGER = LogManager.getLogger();
 
-    @Mod.Instance(MODID)
-    public static WitcheryWallsMod instance;
+    public WitcheryWallsMod()
+    {
+        IEventBus modBus = FMLJavaModLoadingContext.get().getModEventBus();
+        ModBlocks.BLOCKS.register(modBus);
+        ModBlockEntities.BLOCK_ENTITIES.register(modBus);
 
-    @SidedProxy(clientSide = "com.witcherywalls.proxy.ClientProxy", serverSide = "com.witcherywalls.proxy.CommonProxy")
-    public static CommonProxy proxy;
-
-    private static Logger logger;
+        IEventBus forgeBus = MinecraftForge.EVENT_BUS;
+        forgeBus.addListener(this::onServerTick);
+        forgeBus.register(VillageWallChunkHandler.class);
+    }
 
     public static Logger getLogger()
     {
-        return logger;
+        return LOGGER;
     }
 
-    @EventHandler
-    public void preInit(FMLPreInitializationEvent event)
+    private void onServerTick(TickEvent.ServerTickEvent event)
     {
-        logger = event.getModLog();
-        ModEntities.register();
-        ModBlocks.register();
-        ModTileEntities.register();
-        VillageStructureRegistration.preInit();
-        proxy.preInit(event);
-    }
-
-    @EventHandler
-    public void init(FMLInitializationEvent event)
-    {
-        VillageStructureRegistration.init();
-        proxy.init(event);
-    }
-
-    @EventHandler
-    public void postInit(FMLPostInitializationEvent event)
-    {
-        proxy.postInit(event);
+        if (event.phase == TickEvent.Phase.END)
+        {
+            VillageWallScheduler.tick(event.getServer().getTickCount());
+        }
     }
 }
