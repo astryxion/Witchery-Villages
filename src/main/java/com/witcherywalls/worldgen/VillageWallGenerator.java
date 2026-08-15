@@ -3,6 +3,7 @@ package com.witcherywalls.worldgen;
 import com.witcherywalls.WitcheryWallsMod;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.block.Block;
@@ -13,12 +14,14 @@ import net.minecraft.world.level.block.state.properties.Half;
 import net.minecraft.world.level.material.FluidState;
 import net.minecraft.tags.BlockTags;
 
+import java.util.ArrayDeque;
 import java.util.List;
 
 public final class VillageWallGenerator
 {
     private static final int SOLID_THRESHOLD = 9;
     private static final int SHALLOW_WATER_PROBE = 4;
+    private static final int MAX_SPAN = 384;
 
     private VillageWallGenerator()
     {
@@ -48,10 +51,23 @@ public final class VillageWallGenerator
 
         int spanX = maxX - minX;
         int spanZ = maxZ - minZ;
-        if (spanX > 160 || spanZ > 160)
+        if (spanX > MAX_SPAN || spanZ > MAX_SPAN)
         {
-            WitcheryWallsMod.getLogger().warn("Village wall perimeter too large ({}x{}), skipping at [{}, {}]", spanX, spanZ, xCoord, zCoord);
-            return false;
+            WitcheryWallsMod.getLogger().info("Village wall perimeter {}x{} exceeds {}, clipping around [{}, {}]",
+                    spanX, spanZ, MAX_SPAN, xCoord, zCoord);
+            int half = MAX_SPAN / 2;
+            minX = Math.max(minX, xCoord - half);
+            maxX = Math.min(maxX, xCoord + half);
+            minZ = Math.max(minZ, zCoord - half);
+            maxZ = Math.min(maxZ, zCoord + half);
+            spanX = maxX - minX;
+            spanZ = maxZ - minZ;
+            if (spanX < 8 || spanZ < 8)
+            {
+                WitcheryWallsMod.getLogger().warn("Village wall perimeter too small after clipping ({}x{}), skipping at [{}, {}]",
+                        spanX, spanZ, xCoord, zCoord);
+                return false;
+            }
         }
 
         byte[][] grid = new byte[maxX - minX + 3][maxZ - minZ + 3];
@@ -71,6 +87,10 @@ public final class VillageWallGenerator
                 {
                     int mx = m - minX + 1;
                     int mz = z - minZ + 1;
+                    if (mx <= 0 || mz <= 0 || mx >= grid.length - 1 || mz >= grid[mx].length - 1)
+                    {
+                        continue;
+                    }
 
                     if (!bounds.ew && (z == bounds.minZ || z == bounds.maxZ) && m >= wMid - 1 && m <= wMid + 1)
                     {
@@ -116,6 +136,8 @@ public final class VillageWallGenerator
             }
         }
 
+        fillEnclosedHoles(grid);
+
         for (int x = 1; x < grid.length - 1; x++)
         {
             for (int z = 1; z < grid[x].length - 1; z++)
@@ -136,53 +158,158 @@ public final class VillageWallGenerator
             }
         }
 
-        Block blockBase = Blocks.STONE_BRICKS;
-        Block blockFence = Blocks.OAK_FENCE;
-        Block stairsBlock = Blocks.STONE_BRICK_STAIRS;
-        BlockState blockBaseState = blockBase.defaultBlockState();
+        VillageWallPlan plan = new VillageWallPlan(minX, minZ, yCoord, desert, grid, foundations, heights);
+        resume(level, plan, Integer.MAX_VALUE);
 
-        if (desert)
+        int remaining = plan.remaining();
+        if (remaining > 0 && level instanceof net.minecraft.server.level.ServerLevel serverLevel)
         {
-            blockBase = Blocks.SMOOTH_SANDSTONE;
-            stairsBlock = Blocks.SANDSTONE_STAIRS;
-            blockBaseState = blockBase.defaultBlockState();
+            VillageWallDeferred.add(serverLevel, plan);
         }
 
-        for (int k = 1; k < grid.length - 1; k++)
-        {
-            for (int z = 1; z < grid[k].length - 1; z++)
-            {
-                if (grid[k][z] >= 2)
-                {
-                    int dx = minX + k;
-                    int dz = minZ + z;
-                    int foundation = findFoundationY(level, dx, dz);
-                    int startY = foundation + 9;
+        return true;
+    }
 
-                    foundations[k][z] = foundation;
-                    heights[k][z] = startY;
+    /**
+     * Street expansions often leave courtyards and gaps as empty cells. Those holes
+     * get their own perimeter, which looks like a wall inside the wall. Fill any
+     * empty region that cannot reach the outside of the grid.
+     */
+    private static void fillEnclosedHoles(byte[][] grid)
+    {
+        int width = grid.length;
+        int depth = grid[0].length;
+        boolean[][] outside = new boolean[width][depth];
+        ArrayDeque<int[]> queue = new ArrayDeque<>();
+
+        for (int x = 0; x < width; x++)
+        {
+            markOutside(grid, outside, queue, x, 0);
+            markOutside(grid, outside, queue, x, depth - 1);
+        }
+        for (int z = 0; z < depth; z++)
+        {
+            markOutside(grid, outside, queue, 0, z);
+            markOutside(grid, outside, queue, width - 1, z);
+        }
+
+        while (!queue.isEmpty())
+        {
+            int[] pos = queue.removeFirst();
+            int x = pos[0];
+            int z = pos[1];
+            markOutside(grid, outside, queue, x + 1, z);
+            markOutside(grid, outside, queue, x - 1, z);
+            markOutside(grid, outside, queue, x, z + 1);
+            markOutside(grid, outside, queue, x, z - 1);
+        }
+
+        for (int x = 1; x < width - 1; x++)
+        {
+            for (int z = 1; z < depth - 1; z++)
+            {
+                if (grid[x][z] == 0 && !outside[x][z])
+                {
+                    grid[x][z] = 2;
                 }
             }
         }
+    }
 
-        for (int k = 1; k < grid.length - 1; k++)
+    private static void markOutside(byte[][] grid, boolean[][] outside, ArrayDeque<int[]> queue, int x, int z)
+    {
+        if (x < 0 || z < 0 || x >= grid.length || z >= grid[x].length)
         {
-            for (int z = 1; z < grid[k].length - 1; z++)
+            return;
+        }
+        if (grid[x][z] != 0 || outside[x][z])
+        {
+            return;
+        }
+        outside[x][z] = true;
+        queue.add(new int[] {x, z});
+    }
+
+    static int resume(Level level, VillageWallPlan plan, int budget)
+    {
+        prepareHeights(level, plan);
+
+        int placed = 0;
+        for (int k = 1; k < plan.grid.length - 1 && placed < budget; k++)
+        {
+            for (int z = 1; z < plan.grid[k].length - 1 && placed < budget; z++)
             {
-                if (grid[k][z] >= 2 && foundations[k][z] != 0)
+                if (plan.grid[k][z] < 2 || plan.placed[k][z] || !plan.scanned[k][z])
                 {
-                    int dx = minX + k;
-                    int dz = minZ + z;
+                    continue;
+                }
 
-                    if (hasFluidAt(level, dx, dz, foundations[k][z]))
+                int dx = plan.minX + k;
+                int dz = plan.minZ + z;
+                if (!level.hasChunk(dx >> 4, dz >> 4))
+                {
+                    continue;
+                }
+
+                placeWallColumn(level, plan, k, z);
+                plan.placed[k][z] = true;
+                placed++;
+            }
+        }
+
+        return placed;
+    }
+
+    private static void prepareHeights(Level level, VillageWallPlan plan)
+    {
+        BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
+
+        for (int k = 1; k < plan.grid.length - 1; k++)
+        {
+            for (int z = 1; z < plan.grid[k].length - 1; z++)
+            {
+                if (plan.grid[k][z] < 2 || plan.scanned[k][z])
+                {
+                    continue;
+                }
+
+                int dx = plan.minX + k;
+                int dz = plan.minZ + z;
+                if (!level.hasChunk(dx >> 4, dz >> 4))
+                {
+                    continue;
+                }
+
+                int foundation = findFoundationY(level, dx, dz, plan.yCoord);
+                plan.foundations[k][z] = foundation;
+                plan.heights[k][z] = foundation + 9;
+                plan.scanned[k][z] = true;
+            }
+        }
+
+        for (int k = 1; k < plan.grid.length - 1; k++)
+        {
+            for (int z = 1; z < plan.grid[k].length - 1; z++)
+            {
+                if (plan.grid[k][z] < 2 || !plan.scanned[k][z])
+                {
+                    continue;
+                }
+
+                int dx = plan.minX + k;
+                int dz = plan.minZ + z;
+                if (!level.hasChunk(dx >> 4, dz >> 4))
+                {
+                    continue;
+                }
+
+                if (hasFluidAt(level, dx, dz, plan.foundations[k][z], cursor))
+                {
+                    int nearFoundation = maxNeighborFoundation(plan.grid, plan.foundations, k, z);
+                    if (nearFoundation != Integer.MIN_VALUE && nearFoundation > plan.foundations[k][z])
                     {
-                        int nearFoundation = maxNeighborFoundation(grid, foundations, k, z);
-
-                        if (nearFoundation != Integer.MIN_VALUE && nearFoundation > foundations[k][z])
-                        {
-                            foundations[k][z] = nearFoundation;
-                            heights[k][z] = nearFoundation + 9;
-                        }
+                        plan.foundations[k][z] = nearFoundation;
+                        plan.heights[k][z] = nearFoundation + 9;
                     }
                 }
             }
@@ -190,207 +317,220 @@ public final class VillageWallGenerator
 
         for (int smooth = 0; smooth < 6; smooth++)
         {
-            for (int k = 1; k < grid.length - 1; k++)
+            for (int k = 1; k < plan.grid.length - 1; k++)
             {
-                for (int z = 1; z < grid[k].length - 1; z++)
+                for (int z = 1; z < plan.grid[k].length - 1; z++)
                 {
-                    if (grid[k][z] >= 2 && heights[k][z] != 0)
-                    {
-                        int near = maxNeighborHeight(grid, heights, k, z);
-
-                        if (near != Integer.MIN_VALUE)
-                        {
-                            int startY = heights[k][z];
-
-                            if (near > startY)
-                            {
-                                startY = near - 1;
-                            }
-                            else if (near < startY)
-                            {
-                                startY = near + 1;
-                            }
-
-                            heights[k][z] = startY;
-                        }
-                    }
-                }
-            }
-        }
-
-        for (int k = 1; k < grid.length - 1; k++)
-        {
-            for (int z = 1; z < grid[k].length - 1; z++)
-            {
-                boolean n = grid[k][z - 1] >= 2;
-                boolean s = grid[k][z + 1] >= 2;
-                boolean e = grid[k + 1][z] >= 2;
-                boolean w = grid[k - 1][z] >= 2;
-                boolean ne = grid[k + 1][z - 1] >= 2;
-                boolean sw = grid[k - 1][z + 1] >= 2;
-                boolean se = grid[k + 1][z + 1] >= 2;
-                boolean nw = grid[k - 1][z - 1] >= 2;
-
-                if (grid[k][z] >= 2)
-                {
-                    int dx = minX + k;
-                    int dz = minZ + z;
-                    int startY = heights[k][z];
-                    int placementBottom = getWallBottomY(level, dx, dz, foundations[k][z]);
-
-                    if (startY <= placementBottom)
+                    if (plan.grid[k][z] < 2 || !plan.scanned[k][z] || plan.placed[k][z])
                     {
                         continue;
                     }
 
-                    for (int dy = startY; dy > placementBottom; dy--)
+                    int near = maxNeighborHeight(plan.grid, plan.heights, k, z);
+                    if (near == Integer.MIN_VALUE)
                     {
-                        if (dy == startY)
+                        continue;
+                    }
+
+                    int startY = plan.heights[k][z];
+                    if (near > startY)
+                    {
+                        startY = near - 1;
+                    }
+                    else if (near < startY)
+                    {
+                        startY = near + 1;
+                    }
+                    plan.heights[k][z] = startY;
+                }
+            }
+        }
+    }
+
+    private static void placeWallColumn(Level level, VillageWallPlan plan, int k, int z)
+    {
+        byte[][] grid = plan.grid;
+        boolean n = grid[k][z - 1] >= 2;
+        boolean s = grid[k][z + 1] >= 2;
+        boolean e = grid[k + 1][z] >= 2;
+        boolean w = grid[k - 1][z] >= 2;
+        boolean ne = grid[k + 1][z - 1] >= 2;
+        boolean sw = grid[k - 1][z + 1] >= 2;
+        boolean se = grid[k + 1][z + 1] >= 2;
+        boolean nw = grid[k - 1][z - 1] >= 2;
+
+        int dx = plan.minX + k;
+        int dz = plan.minZ + z;
+        int startY = plan.heights[k][z];
+        int placementBottom = getWallBottomY(level, dx, dz, plan.foundations[k][z]);
+
+        if (startY <= placementBottom)
+        {
+            return;
+        }
+
+        Block blockBase = plan.desert ? Blocks.SMOOTH_SANDSTONE : Blocks.STONE_BRICKS;
+        Block stairsBlock = plan.desert ? Blocks.SANDSTONE_STAIRS : Blocks.STONE_BRICK_STAIRS;
+        Block blockFence = Blocks.OAK_FENCE;
+        BlockState blockBaseState = blockBase.defaultBlockState();
+
+        for (int dy = startY; dy > placementBottom; dy--)
+        {
+            if (dy == startY)
+            {
+                if (!ne && !n && !e)
+                {
+                    setBlock(level, dx + 2, dy, dz - 2, blockBaseState);
+                    setBlock(level, dx + 2, dy, dz - 1, blockBaseState);
+                    setBlock(level, dx + 1, dy, dz - 2, blockBaseState);
+                    setBlock(level, dx + 2, dy + 1, dz - 2, blockBaseState, false);
+                    setBlock(level, dx + 2, dy + 1, dz - 1, blockBaseState, false);
+                    setBlock(level, dx + 1, dy + 1, dz - 2, blockBaseState, false);
+                }
+                if (!nw && !n && !w)
+                {
+                    setBlock(level, dx - 2, dy, dz - 2, blockBaseState);
+                    setBlock(level, dx - 1, dy, dz - 2, blockBaseState);
+                    setBlock(level, dx - 2, dy, dz - 1, blockBaseState);
+                    setBlock(level, dx - 2, dy + 1, dz - 2, blockBaseState, false);
+                    setBlock(level, dx - 1, dy + 1, dz - 2, blockBaseState, false);
+                    setBlock(level, dx - 2, dy + 1, dz - 1, blockBaseState, false);
+                }
+                if (!se && !s && !e)
+                {
+                    setBlock(level, dx + 2, dy, dz + 2, blockBaseState);
+                    setBlock(level, dx + 1, dy, dz + 2, blockBaseState);
+                    setBlock(level, dx + 2, dy, dz + 1, blockBaseState);
+                    setBlock(level, dx + 2, dy + 1, dz + 2, blockBaseState, false);
+                    setBlock(level, dx + 1, dy + 1, dz + 2, blockBaseState, false);
+                    setBlock(level, dx + 2, dy + 1, dz + 1, blockBaseState, false);
+                }
+                if (!sw && !s && !w)
+                {
+                    setBlock(level, dx - 2, dy, dz + 2, blockBaseState);
+                    setBlock(level, dx - 1, dy, dz + 2, blockBaseState);
+                    setBlock(level, dx - 2, dy, dz + 1, blockBaseState);
+                    setBlock(level, dx - 2, dy + 1, dz + 2, blockBaseState, false);
+                    setBlock(level, dx - 1, dy + 1, dz + 2, blockBaseState, false);
+                    setBlock(level, dx - 2, dy + 1, dz + 1, blockBaseState, false);
+                }
+                if (!n && !ne && !nw)
+                {
+                    setBlock(level, dx, dy, dz - 2, blockBaseState);
+                    setBlock(level, dx, dy + 1, dz - 2, stairState(stairsBlock, 0), false);
+                }
+                if (!e && !se && !ne)
+                {
+                    setBlock(level, dx + 2, dy, dz, blockBaseState);
+                    setBlock(level, dx + 2, dy + 1, dz, stairState(stairsBlock, 2), false);
+                }
+                if (!s && !se && !sw)
+                {
+                    setBlock(level, dx, dy, dz + 2, blockBaseState);
+                    setBlock(level, dx, dy + 1, dz + 2, stairState(stairsBlock, 0), false);
+                }
+                if (!w && !nw && !sw)
+                {
+                    setBlock(level, dx - 2, dy, dz, blockBaseState);
+                    setBlock(level, dx - 2, dy + 1, dz, stairState(stairsBlock, 2), false);
+                }
+
+                if (++plan.guardDist > 200)
+                {
+                    spawnWallGuard(level, dx, dy, dz);
+                    plan.guardDist = 0;
+                }
+            }
+            else
+            {
+                int distCheck = 4;
+                boolean gate = grid[k][z] == 3
+                        && ((k > distCheck && k < grid.length - distCheck && grid[k - distCheck][z] == 2 && grid[k + distCheck][z] == 2)
+                        || (z > distCheck && z < grid[k].length - distCheck && grid[k][z - distCheck] == 2 && grid[k][z + distCheck] == 2));
+
+                if (gate && dy == startY - 3)
+                {
+                    setBlock(level, dx, dy, dz, blockFence.defaultBlockState());
+                    if (grid[k + 1][z] != 3 || grid[k - 1][z] != 3)
+                    {
+                        if (grid[k + 1][z] == 3)
                         {
-                            if (!ne && !n && !e)
-                            {
-                                setBlock(level, dx + 2, dy, dz - 2, blockBaseState);
-                                setBlock(level, dx + 2, dy, dz - 1, blockBaseState);
-                                setBlock(level, dx + 1, dy, dz - 2, blockBaseState);
-                                setBlock(level, dx + 2, dy + 1, dz - 2, blockBaseState, false);
-                                setBlock(level, dx + 2, dy + 1, dz - 1, blockBaseState, false);
-                                setBlock(level, dx + 1, dy + 1, dz - 2, blockBaseState, false);
-                            }
-                            if (!nw && !n && !w)
-                            {
-                                setBlock(level, dx - 2, dy, dz - 2, blockBaseState);
-                                setBlock(level, dx - 1, dy, dz - 2, blockBaseState);
-                                setBlock(level, dx - 2, dy, dz - 1, blockBaseState);
-                                setBlock(level, dx - 2, dy + 1, dz - 2, blockBaseState, false);
-                                setBlock(level, dx - 1, dy + 1, dz - 2, blockBaseState, false);
-                                setBlock(level, dx - 2, dy + 1, dz - 1, blockBaseState, false);
-                            }
-                            if (!se && !s && !e)
-                            {
-                                setBlock(level, dx + 2, dy, dz + 2, blockBaseState);
-                                setBlock(level, dx + 1, dy, dz + 2, blockBaseState);
-                                setBlock(level, dx + 2, dy, dz + 1, blockBaseState);
-                                setBlock(level, dx + 2, dy + 1, dz + 2, blockBaseState, false);
-                                setBlock(level, dx + 1, dy + 1, dz + 2, blockBaseState, false);
-                                setBlock(level, dx + 2, dy + 1, dz + 1, blockBaseState, false);
-                            }
-                            if (!sw && !s && !w)
-                            {
-                                setBlock(level, dx - 2, dy, dz + 2, blockBaseState);
-                                setBlock(level, dx - 1, dy, dz + 2, blockBaseState);
-                                setBlock(level, dx - 2, dy, dz + 1, blockBaseState);
-                                setBlock(level, dx - 2, dy + 1, dz + 2, blockBaseState, false);
-                                setBlock(level, dx - 1, dy + 1, dz + 2, blockBaseState, false);
-                                setBlock(level, dx - 2, dy + 1, dz + 1, blockBaseState, false);
-                            }
-                            if (!n && !ne && !nw)
-                            {
-                                setBlock(level, dx, dy, dz - 2, blockBaseState);
-                                setBlock(level, dx, dy + 1, dz - 2, stairState(stairsBlock, 0), false);
-                            }
-                            if (!e && !se && !ne)
-                            {
-                                setBlock(level, dx + 2, dy, dz, blockBaseState);
-                                setBlock(level, dx + 2, dy + 1, dz, stairState(stairsBlock, 2), false);
-                            }
-                            if (!s && !se && !sw)
-                            {
-                                setBlock(level, dx, dy, dz + 2, blockBaseState);
-                                setBlock(level, dx, dy + 1, dz + 2, stairState(stairsBlock, 0), false);
-                            }
-                            if (!w && !nw && !sw)
-                            {
-                                setBlock(level, dx - 2, dy, dz, blockBaseState);
-                                setBlock(level, dx - 2, dy + 1, dz, stairState(stairsBlock, 2), false);
-                            }
+                            setBlock(level, dx, dy, dz - 1, stairState(stairsBlock, 5));
+                            setBlock(level, dx, dy, dz + 1, stairState(stairsBlock, 5));
                         }
-                        else
+                        else if (grid[k - 1][z] == 3)
                         {
-                            int distCheck = 4;
-                            boolean gate = grid[k][z] == 3
-                                    && ((k > distCheck && k < grid.length - distCheck && grid[k - distCheck][z] == 2 && grid[k + distCheck][z] == 2)
-                                    || (z > distCheck && z < grid[k].length - distCheck && grid[k][z - distCheck] == 2 && grid[k][z + distCheck] == 2));
-
-                            if (gate && dy == startY - 3)
+                            setBlock(level, dx, dy, dz - 1, stairState(stairsBlock, 4));
+                            setBlock(level, dx, dy, dz + 1, stairState(stairsBlock, 4));
+                        }
+                        else if (grid[k][z + 1] != 3 || grid[k][z - 1] != 3)
+                        {
+                            if (grid[k][z - 1] == 3)
                             {
-                                setBlock(level, dx, dy, dz, blockFence.defaultBlockState());
-                                if (grid[k + 1][z] != 3 || grid[k - 1][z] != 3)
-                                {
-                                    if (grid[k + 1][z] == 3)
-                                    {
-                                        setBlock(level, dx, dy, dz - 1, stairState(stairsBlock, 5));
-                                        setBlock(level, dx, dy, dz + 1, stairState(stairsBlock, 5));
-                                    }
-                                    else if (grid[k - 1][z] == 3)
-                                    {
-                                        setBlock(level, dx, dy, dz - 1, stairState(stairsBlock, 4));
-                                        setBlock(level, dx, dy, dz + 1, stairState(stairsBlock, 4));
-                                    }
-                                    else if (grid[k][z + 1] != 3 || grid[k][z - 1] != 3)
-                                    {
-                                        if (grid[k][z - 1] == 3)
-                                        {
-                                            setBlock(level, dx - 1, dy, dz, stairState(stairsBlock, 6));
-                                            setBlock(level, dx + 1, dy, dz, stairState(stairsBlock, 6));
-                                        }
-                                        else if (grid[k][z + 1] == 3)
-                                        {
-                                            setBlock(level, dx - 1, dy, dz, stairState(stairsBlock, 7));
-                                            setBlock(level, dx + 1, dy, dz, stairState(stairsBlock, 7));
-                                        }
-                                    }
-                                }
+                                setBlock(level, dx - 1, dy, dz, stairState(stairsBlock, 6));
+                                setBlock(level, dx + 1, dy, dz, stairState(stairsBlock, 6));
                             }
-
-                            if (!gate || dy > startY - 3)
+                            else if (grid[k][z + 1] == 3)
                             {
-                                setBlock(level, dx, dy, dz, blockBaseState);
-
-                                boolean ng = grid[k][z - 1] == 3;
-                                boolean sg = grid[k][z + 1] == 3;
-                                boolean eg = grid[k + 1][z] == 3;
-                                boolean wg = grid[k - 1][z] == 3;
-
-                                if (!ng)
-                                {
-                                    setBlock(level, dx, dy, dz - 1, blockBaseState);
-                                }
-                                if (!ng && !eg)
-                                {
-                                    setBlock(level, dx + 1, dy, dz - 1, blockBaseState);
-                                }
-                                if (!ng && !wg)
-                                {
-                                    setBlock(level, dx - 1, dy, dz - 1, blockBaseState);
-                                }
-                                if (!eg)
-                                {
-                                    setBlock(level, dx + 1, dy, dz, blockBaseState);
-                                }
-                                if (!sg)
-                                {
-                                    setBlock(level, dx, dy, dz + 1, blockBaseState);
-                                }
-                                if (!sg && !eg)
-                                {
-                                    setBlock(level, dx + 1, dy, dz + 1, blockBaseState);
-                                }
-                                if (!sg && !wg)
-                                {
-                                    setBlock(level, dx - 1, dy, dz + 1, blockBaseState);
-                                }
-                                if (!wg)
-                                {
-                                    setBlock(level, dx - 1, dy, dz, blockBaseState);
-                                }
+                                setBlock(level, dx - 1, dy, dz, stairState(stairsBlock, 7));
+                                setBlock(level, dx + 1, dy, dz, stairState(stairsBlock, 7));
                             }
                         }
                     }
                 }
+
+                if (!gate || dy > startY - 3)
+                {
+                    setBlock(level, dx, dy, dz, blockBaseState);
+
+                    boolean ng = grid[k][z - 1] == 3;
+                    boolean sg = grid[k][z + 1] == 3;
+                    boolean eg = grid[k + 1][z] == 3;
+                    boolean wg = grid[k - 1][z] == 3;
+
+                    if (!ng)
+                    {
+                        setBlock(level, dx, dy, dz - 1, blockBaseState);
+                    }
+                    if (!ng && !eg)
+                    {
+                        setBlock(level, dx + 1, dy, dz - 1, blockBaseState);
+                    }
+                    if (!ng && !wg)
+                    {
+                        setBlock(level, dx - 1, dy, dz - 1, blockBaseState);
+                    }
+                    if (!eg)
+                    {
+                        setBlock(level, dx + 1, dy, dz, blockBaseState);
+                    }
+                    if (!sg)
+                    {
+                        setBlock(level, dx, dy, dz + 1, blockBaseState);
+                    }
+                    if (!sg && !eg)
+                    {
+                        setBlock(level, dx + 1, dy, dz + 1, blockBaseState);
+                    }
+                    if (!sg && !wg)
+                    {
+                        setBlock(level, dx - 1, dy, dz + 1, blockBaseState);
+                    }
+                    if (!wg)
+                    {
+                        setBlock(level, dx - 1, dy, dz, blockBaseState);
+                    }
+                }
             }
         }
+    }
 
-        return true;
+    private static void spawnWallGuard(Level level, int x, int y, int z)
+    {
+        if (level instanceof ServerLevel serverLevel)
+        {
+            VillageGuardSpawnQueue.schedule(serverLevel, new BlockPos(x, y, z), VillageGuardSpawnQueue.Site.WALL);
+        }
     }
 
     private static BlockState stairState(Block block, int meta)
@@ -417,63 +557,53 @@ public final class VillageWallGenerator
     {
         int surface = level.getHeight(Heightmap.Types.WORLD_SURFACE_WG, dx, dz);
         int oceanFloor = level.getHeight(Heightmap.Types.OCEAN_FLOOR_WG, dx, dz);
-        int scanTop = Math.max(landFoundation, surface);
 
-        boolean waterColumn = false;
-        for (int y = oceanFloor; y <= scanTop; y++)
-        {
-            if (hasFluidAt(level, dx, dz, y))
-            {
-                waterColumn = true;
-                break;
-            }
-        }
-
-        if (!waterColumn)
+        if (surface - oceanFloor <= 1)
         {
             return landFoundation;
-        }
-
-        for (int y = oceanFloor; y <= scanTop; y++)
-        {
-            if (!hasFluidAt(level, dx, dz, y) && countSolidAt(level, dx, dz, y) >= SOLID_THRESHOLD)
-            {
-                return y;
-            }
         }
 
         return oceanFloor;
     }
 
-    private static int findFoundationY(Level level, int dx, int dz)
+    private static int findFoundationY(Level level, int dx, int dz, int yCoord)
     {
-        int top = level.getHeight(Heightmap.Types.WORLD_SURFACE_WG, dx, dz) + 4;
-        int bottom = level.getMinBuildHeight();
+        int surface = level.getHeight(Heightmap.Types.WORLD_SURFACE_WG, dx, dz);
+        int top = Math.min(surface + 2, yCoord + 16);
+        int bottom = Math.max(level.getMinBuildHeight() + 1, Math.min(yCoord, surface) - 40);
+
+        if (top < bottom)
+        {
+            top = surface;
+            bottom = Math.max(level.getMinBuildHeight() + 1, surface - 16);
+        }
+
+        BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
 
         for (int dy = top; dy >= bottom; dy--)
         {
-            if (hasFluidAt(level, dx, dz, dy))
+            if (hasFluidAt(level, dx, dz, dy, cursor))
             {
-                int surface = dy;
+                int waterSurface = dy;
 
-                for (int probe = surface; probe > surface - SHALLOW_WATER_PROBE && probe >= bottom; probe--)
+                for (int probe = waterSurface; probe > waterSurface - SHALLOW_WATER_PROBE && probe >= bottom; probe--)
                 {
-                    if (!hasFluidAt(level, dx, dz, probe) && countSolidAt(level, dx, dz, probe) >= SOLID_THRESHOLD)
+                    if (!hasFluidAt(level, dx, dz, probe, cursor) && countSolidAt(level, dx, dz, probe, cursor) >= SOLID_THRESHOLD)
                     {
                         return probe;
                     }
                 }
 
-                return surface;
+                return waterSurface;
             }
 
-            if (countSolidAt(level, dx, dz, dy) >= SOLID_THRESHOLD)
+            if (countSolidAt(level, dx, dz, dy, cursor) >= SOLID_THRESHOLD)
             {
                 return dy;
             }
         }
 
-        return bottom;
+        return Math.max(bottom, surface - 1);
     }
 
     private static int maxNeighborFoundation(byte[][] grid, int[][] foundations, int k, int z)
@@ -524,13 +654,13 @@ public final class VillageWallGenerator
         return max;
     }
 
-    private static boolean hasFluidAt(Level level, int dx, int dz, int y)
+    private static boolean hasFluidAt(Level level, int dx, int dz, int y, BlockPos.MutableBlockPos cursor)
     {
         for (int ddx = dx - 1; ddx <= dx + 1; ddx++)
         {
             for (int ddz = dz - 1; ddz <= dz + 1; ddz++)
             {
-                FluidState fluid = level.getFluidState(new BlockPos(ddx, y, ddz));
+                FluidState fluid = level.getFluidState(cursor.set(ddx, y, ddz));
                 if (!fluid.isEmpty())
                 {
                     return true;
@@ -541,7 +671,7 @@ public final class VillageWallGenerator
         return false;
     }
 
-    private static int countSolidAt(Level level, int dx, int dz, int y)
+    private static int countSolidAt(Level level, int dx, int dz, int y, BlockPos.MutableBlockPos cursor)
     {
         int solidCount = 0;
 
@@ -549,10 +679,8 @@ public final class VillageWallGenerator
         {
             for (int ddz = dz - 1; ddz <= dz + 1; ddz++)
             {
-                BlockPos pos = new BlockPos(ddx, y, ddz);
-                BlockState state = level.getBlockState(pos);
-
-                if (isSolidForFoundation(level, pos, state) && !canReplaceForWall(state))
+                BlockState state = level.getBlockState(cursor.set(ddx, y, ddz));
+                if (!state.isAir() && !canReplaceForWall(state))
                 {
                     solidCount++;
                 }
@@ -562,44 +690,19 @@ public final class VillageWallGenerator
         return solidCount;
     }
 
-    private static boolean isSolidForFoundation(Level level, BlockPos pos, BlockState state)
+    static boolean canReplaceForWall(BlockState state)
     {
-        return !state.isAir() && !canReplaceForWall(state);
-    }
+        if (state.isAir() || state.canBeReplaced() || !state.getFluidState().isEmpty())
+        {
+            return true;
+        }
 
-    private static boolean canReplaceForWall(BlockState state)
-    {
-        return state.canBeReplaced()
-                || state.is(BlockTags.LEAVES)
-                || state.is(BlockTags.REPLACEABLE_BY_TREES)
-                || !state.getFluidState().isEmpty();
+        return state.is(BlockTags.LEAVES) || state.is(BlockTags.REPLACEABLE_BY_TREES);
     }
 
     private static void setBlock(Level level, int x, int y, int z, BlockState state, boolean replaceSoftBlocks)
     {
-        BlockPos pos = new BlockPos(x, y, z);
-        BlockState existing = level.getBlockState(pos);
-
-        if (VillagePathScanner.isProtectedFromWall(existing))
-        {
-            return;
-        }
-
-        if (!replaceSoftBlocks)
-        {
-            if (!canReplaceForWall(existing))
-            {
-                return;
-            }
-
-            VillageWallPlacementQueue.enqueue(level, pos, state);
-            return;
-        }
-
-        if (canReplaceForWall(existing))
-        {
-            VillageWallPlacementQueue.enqueue(level, pos, state);
-        }
+        VillageWallPlacementQueue.enqueue(level, new BlockPos(x, y, z), state, replaceSoftBlocks);
     }
 
     public static final class StructureBounds

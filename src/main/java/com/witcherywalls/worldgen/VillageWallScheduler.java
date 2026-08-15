@@ -1,6 +1,7 @@
 package com.witcherywalls.worldgen;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 
 import java.util.ArrayList;
@@ -38,9 +39,13 @@ public final class VillageWallScheduler
         PENDING.add(new PendingGeneration(level, center.immutable(), executeTick));
     }
 
-    public static void tick(long currentTick)
+    public static void tick(MinecraftServer server)
     {
         VillageWallPlacementQueue.tick();
+        VillageWallDeferred.tick(server);
+        VillageGuardSpawnQueue.tick();
+
+        long currentTick = server.getTickCount();
 
         List<PendingGeneration> ready = new ArrayList<>();
         Iterator<PendingGeneration> iterator = PENDING.iterator();
@@ -59,7 +64,7 @@ public final class VillageWallScheduler
         int started = 0;
         for (PendingGeneration pending : ready)
         {
-            if (started >= MAX_STARTS_PER_TICK)
+            if (started >= MAX_STARTS_PER_TICK || VillageWallPlacementQueue.isBusy())
             {
                 pending.executeTick = currentTick + 20;
                 PENDING.add(pending);

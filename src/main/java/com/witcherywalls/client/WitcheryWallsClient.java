@@ -1,0 +1,33 @@
+package com.witcherywalls.client;
+
+import com.witcherywalls.WitcheryWallsMod;
+import com.witcherywalls.init.ModEntities;
+import net.minecraft.client.model.geom.ModelLayerLocation;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraftforge.api.distmarker.Dist;
+import net.minecraftforge.client.event.EntityRenderersEvent;
+import net.minecraftforge.eventbus.api.SubscribeEvent;
+import net.minecraftforge.fml.common.Mod;
+
+@Mod.EventBusSubscriber(modid = WitcheryWallsMod.MODID, bus = Mod.EventBusSubscriber.Bus.MOD, value = Dist.CLIENT)
+public final class WitcheryWallsClient
+{
+    public static final ModelLayerLocation VILLAGE_GUARD = new ModelLayerLocation(
+            new ResourceLocation(WitcheryWallsMod.MODID, "village_guard"), "main");
+
+    private WitcheryWallsClient()
+    {
+    }
+
+    @SubscribeEvent
+    public static void registerLayerDefinitions(EntityRenderersEvent.RegisterLayerDefinitions event)
+    {
+        event.registerLayerDefinition(VILLAGE_GUARD, VillageGuardModel::createBodyLayer);
+    }
+
+    @SubscribeEvent
+    public static void registerRenderers(EntityRenderersEvent.RegisterRenderers event)
+    {
+        event.registerEntityRenderer(ModEntities.VILLAGE_GUARD.get(), VillageGuardRenderer::new);
+    }
+}

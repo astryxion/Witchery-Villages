@@ -1,6 +1,7 @@
 package com.witcherywalls.worldgen;
 
 import com.witcherywalls.WitcheryWallsMod;
+import com.witcherywalls.config.WitcheryWallsConfig;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 
@@ -9,9 +10,6 @@ import java.util.Random;
 
 public final class VillageWallService
 {
-    private static final int MIN_PATH_BLOCKS = 8;
-    private static final float WALL_GENERATION_CHANCE = 0.5f;
-
     private VillageWallService()
     {
     }
@@ -25,69 +23,51 @@ public final class VillageWallService
             return false;
         }
 
-        if (!looksLikeVillage(level, center))
+        long startedAt = System.nanoTime();
+
+        VillageStructureLocator.LocatedVillage located = VillageStructureLocator.find(level, center);
+        if (located == null)
         {
-            WitcheryWallsMod.getLogger().debug("Skipping wall generation at {} - not enough village paths nearby", center);
+            WitcheryWallsMod.getLogger().debug("Skipping wall generation at {} - not inside a village structure", center);
             return false;
         }
 
-        List<VillageWallGenerator.StructureBounds> bounds = VillagePathScanner.scanPaths(level, center);
-
-        if (bounds.isEmpty())
+        if (located.abandoned())
         {
-            WitcheryWallsMod.getLogger().debug("Skipping wall generation at {} - no path bounds found", center);
-            return false;
-        }
-
-        Random random = new Random(level.getSeed() ^ center.asLong() ^ 0x57414C4CL);
-        if (random.nextFloat() >= WALL_GENERATION_CHANCE)
-        {
-            WitcheryWallsMod.getLogger().debug("Skipping wall generation at {} - random roll failed", center);
             data.markProcessed(center);
-            return false;
+            WitcheryWallsMod.getLogger().info("Skipping abandoned village at {}", center);
+            return true;
         }
 
-        boolean desert = level.getBiome(center).unwrapKey()
-                .map(key -> key.location().getPath().contains("desert"))
-                .orElse(false);
+        List<VillageWallGenerator.StructureBounds> bounds = located.bounds();
+        int groundY = center.getY();
+        boolean desert = located.desert();
+        Random chanceRandom = new Random(level.getSeed() ^ center.asLong() ^ 0x57414C4CL);
+        boolean placeWall = WitcheryWallsConfig.roll(chanceRandom, WitcheryWallsConfig.WALL_SPAWN_CHANCE);
 
-        int groundY = VillagePathScanner.getAveragePathY(level, center);
+        VillageBuildingService.place(level, center, located);
 
-        if (!VillageWallGenerator.placeWalls(level, bounds, center.getX(), groundY, center.getZ(), desert))
+        if (placeWall)
         {
-            WitcheryWallsMod.getLogger().warn("Failed to generate village walls around {}", center);
-            return false;
+            if (!VillageWallGenerator.placeWalls(level, bounds, center.getX(), groundY, center.getZ(), desert))
+            {
+                WitcheryWallsMod.getLogger().warn("Failed to generate village walls around {}", center);
+                return false;
+            }
+        }
+        else
+        {
+            WitcheryWallsMod.getLogger().info("Skipped village walls at {} ({}% chance)",
+                    center, WitcheryWallsConfig.WALL_SPAWN_CHANCE.get());
         }
 
         data.markProcessed(center);
-        WitcheryWallsMod.getLogger().info("Queued village walls around {} ({} path segments)", center, bounds.size());
-        return true;
-    }
-
-    private static boolean looksLikeVillage(ServerLevel level, BlockPos center)
-    {
-        int pathCount = 0;
-        int radius = 40;
-
-        for (int x = center.getX() - radius; x <= center.getX() + radius; x++)
+        long elapsedMs = (System.nanoTime() - startedAt) / 1_000_000L;
+        if (placeWall)
         {
-            for (int z = center.getZ() - radius; z <= center.getZ() + radius; z++)
-            {
-                int surfaceY = level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.WORLD_SURFACE_WG, x, z);
-                for (int y = surfaceY - 4; y <= surfaceY + 4; y++)
-                {
-                    if (VillagePathScanner.isPathBlock(level, new BlockPos(x, y, z)))
-                    {
-                        pathCount++;
-                        if (pathCount >= MIN_PATH_BLOCKS)
-                        {
-                            return true;
-                        }
-                    }
-                }
-            }
+            WitcheryWallsMod.getLogger().info("Queued village walls around {} via structure ({} segments, {} ms)",
+                    center, bounds.size(), elapsedMs);
         }
-
-        return false;
+        return true;
     }
 }

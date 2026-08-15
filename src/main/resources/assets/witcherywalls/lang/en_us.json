@@ -1,3 +1,7 @@
 {
-  "block.witcherywalls.village_wall_gen": "Village Wall Generator"
+  "block.witcherywalls.village_wall_gen": "Village Wall Generator",
+  "entity.witcherywalls.village_guard": "Village Guard",
+  "item.witcherywalls.village_guard_spawn_egg": "Village Guard Spawn Egg",
+  "message.witcherywalls.guards_disabled": "The guards are currently disabled",
+  "message.witcherywalls.item_disabled": "This item is currently disabled"
 }
