@@ -1,6 +1,5 @@
 package com.witcherywalls.proxy;
 
-import com.witcherywalls.ModEntities;
 import com.witcherywalls.client.RenderVillageGuard;
 import com.witcherywalls.entity.EntityVillageGuard;
 import net.minecraftforge.fml.client.registry.RenderingRegistry;
@@ -21,6 +20,5 @@ public class ClientProxy extends CommonProxy
     public void init(FMLInitializationEvent event)
     {
         super.init(event);
-        ModEntities.registerSpawnEgg();
     }
 }

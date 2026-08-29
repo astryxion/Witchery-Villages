@@ -218,7 +218,7 @@ public class ComponentVillageWatchTower extends ModVillagePiece
         }
 
         final int[] spawned = {guardsSpawned};
-        StructureGuardSpawner.spawnGuards(world, bounds, guardsSpawned, 4, 16, 4, 3, new StructureGuardSpawner.GuardSpawnCallback()
+        StructureGuardSpawner.spawnGuards(world, bounds, guardsSpawned, 4, 16, 4, 2, new StructureGuardSpawner.GuardSpawnCallback()
         {
             @Override
             public int getX(int localX, int localZ)

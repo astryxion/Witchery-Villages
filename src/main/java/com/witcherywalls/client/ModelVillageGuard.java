@@ -3,6 +3,11 @@ package com.witcherywalls.client;
 import net.minecraft.client.model.ModelBiped;
 import net.minecraft.client.model.ModelRenderer;
 import net.minecraft.entity.Entity;
+import net.minecraft.entity.EntityLivingBase;
+import net.minecraft.init.Items;
+import net.minecraft.item.ItemStack;
+import net.minecraft.util.EnumHand;
+import net.minecraft.util.EnumHandSide;
 import net.minecraft.util.math.MathHelper;
 import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
@@ -30,6 +35,37 @@ public class ModelVillageGuard extends ModelBiped
         bipedBodyRobe.setRotationPoint(0.0F, 0.0F, 0.0F);
         bipedBodyRobe.addBox(-4.0F, 0.0F, -3.0F, 8, 18, 6, 0.5F);
         bipedBody.addChild(bipedBodyRobe);
+    }
+
+    @Override
+    public void setLivingAnimations(EntityLivingBase entity, float limbSwing, float limbSwingAmount, float partialTickTime)
+    {
+        this.rightArmPose = ModelBiped.ArmPose.EMPTY;
+        this.leftArmPose = ModelBiped.ArmPose.EMPTY;
+        ItemStack mainHand = entity.getHeldItem(EnumHand.MAIN_HAND);
+        if (!mainHand.isEmpty() && mainHand.getItem() == Items.BOW && entity.isHandActive())
+        {
+            if (entity.getPrimaryHand() == EnumHandSide.RIGHT)
+            {
+                this.rightArmPose = ModelBiped.ArmPose.BOW_AND_ARROW;
+            }
+            else
+            {
+                this.leftArmPose = ModelBiped.ArmPose.BOW_AND_ARROW;
+            }
+        }
+        else if (!mainHand.isEmpty())
+        {
+            if (entity.getPrimaryHand() == EnumHandSide.RIGHT)
+            {
+                this.rightArmPose = ModelBiped.ArmPose.ITEM;
+            }
+            else
+            {
+                this.leftArmPose = ModelBiped.ArmPose.ITEM;
+            }
+        }
+        super.setLivingAnimations(entity, limbSwing, limbSwingAmount, partialTickTime);
     }
 
     @Override

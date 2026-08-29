@@ -2,6 +2,8 @@ package com.witcherywalls;
 
 import com.witcherywalls.proxy.CommonProxy;
 import com.witcherywalls.worldgen.VillageStructureRegistration;
+import net.minecraftforge.common.config.Config;
+import net.minecraftforge.common.config.ConfigManager;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.common.Mod.EventHandler;
 import net.minecraftforge.fml.common.SidedProxy;
@@ -20,7 +22,7 @@ public class WitcheryWallsMod
 {
     public static final String MODID = "witcherywalls";
     public static final String NAME = "Witchery Walls";
-    public static final String VERSION = "1.0.0";
+    public static final String VERSION = "1.12.2-1.2.0";
 
     @Mod.Instance(MODID)
     public static WitcheryWallsMod instance;
@@ -39,6 +41,7 @@ public class WitcheryWallsMod
     public void preInit(FMLPreInitializationEvent event)
     {
         logger = event.getModLog();
+        ConfigManager.sync(MODID, Config.Type.INSTANCE);
         ModEntities.register();
         ModBlocks.register();
         ModTileEntities.register();

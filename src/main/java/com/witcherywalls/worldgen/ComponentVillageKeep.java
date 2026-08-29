@@ -18,7 +18,9 @@ import java.util.Random;
 public class ComponentVillageKeep extends ModVillagePiece
 {
     private boolean hasMadeChest;
-    private int guardsSpawned;
+    private int guardsGround;
+    private int guardsMidLeft;
+    private int guardsMidRight;
 
     public ComponentVillageKeep()
     {
@@ -45,7 +47,9 @@ public class ComponentVillageKeep extends ModVillagePiece
     {
         super.writeStructureToNBT(tagCompound);
         tagCompound.setBoolean("Chest", hasMadeChest);
-        tagCompound.setInteger("Guards", guardsSpawned);
+        tagCompound.setInteger("GuardsGround", guardsGround);
+        tagCompound.setInteger("GuardsMidLeft", guardsMidLeft);
+        tagCompound.setInteger("GuardsMidRight", guardsMidRight);
     }
 
     @Override
@@ -53,7 +57,9 @@ public class ComponentVillageKeep extends ModVillagePiece
     {
         super.readStructureFromNBT(tagCompound, manager);
         hasMadeChest = tagCompound.getBoolean("Chest");
-        guardsSpawned = tagCompound.getInteger("Guards");
+        guardsGround = tagCompound.getInteger("GuardsGround");
+        guardsMidLeft = tagCompound.getInteger("GuardsMidLeft");
+        guardsMidRight = tagCompound.getInteger("GuardsMidRight");
     }
 
     @Override
@@ -282,17 +288,17 @@ public class ComponentVillageKeep extends ModVillagePiece
             }
         }
 
-        spawnGuardsAt(world, bounds, 7, 1, 7, 3);
-        spawnGuardsAt(world, bounds, 5, 10, 4, 4);
-        spawnGuardsAt(world, bounds, 13, 10, 4, 5);
+        guardsGround = spawnGuardsAt(world, bounds, 7, 1, 7, 2, guardsGround);
+        guardsMidLeft = spawnGuardsAt(world, bounds, 5, 10, 4, 3, guardsMidLeft);
+        guardsMidRight = spawnGuardsAt(world, bounds, 13, 10, 4, 3, guardsMidRight);
 
         return true;
     }
 
-    private void spawnGuardsAt(World world, StructureBoundingBox bounds, int x, int y, int z, int count)
+    private int spawnGuardsAt(World world, StructureBoundingBox bounds, int x, int y, int z, int count, int alreadySpawned)
     {
-        final int[] spawned = {guardsSpawned};
-        StructureGuardSpawner.spawnGuards(world, bounds, guardsSpawned, x, y, z, count, new StructureGuardSpawner.GuardSpawnCallback()
+        final int[] spawned = {alreadySpawned};
+        StructureGuardSpawner.spawnGuards(world, bounds, alreadySpawned, x, y, z, count, new StructureGuardSpawner.GuardSpawnCallback()
         {
             @Override
             public int getX(int localX, int localZ)
@@ -316,9 +322,9 @@ public class ComponentVillageKeep extends ModVillagePiece
             public void onSpawned()
             {
                 spawned[0]++;
-                guardsSpawned = spawned[0];
             }
         });
+        return spawned[0];
     }
 
     public void drawTower(World world, StructureBoundingBox bounds, int offsetX, int flipX)

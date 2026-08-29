@@ -14,8 +14,8 @@ apply plugin: 'eclipse'
 apply plugin: 'maven-publish'
 
 version = mod_version
-group = 'com.witcherywalls'
-archivesBaseName = mod_archivebasename
+group = mod_group_id
+archivesBaseName = mod_id
 
 sourceCompatibility = targetCompatibility = compileJava.sourceCompatibility = compileJava.targetCompatibility = '1.8' // Need this here so eclipse task generates correctly.
 
@@ -91,7 +91,7 @@ dependencies {
     // Specify the version of Minecraft to use, If this is any group other then 'net.minecraft' it is assumed
     // that the dep is a ForgeGradle 'patcher' dependency. And it's patches will be applied.
     // The userdev artifact is a special name and will get all sorts of transformations applied to it.
-    minecraft 'net.minecraftforge:forge:1.12.2-14.23.5.2859'
+    minecraft "net.minecraftforge:forge:${minecraft_version}-${forge_version}"
 
     // You may put jars on which you depend on in ./libs or you may define them like so..
     // compile "some.group:artifact:version:classifier"
@@ -113,16 +113,35 @@ dependencies {
 
 }
 
+processResources {
+    def expandProps = [
+        version        : project.version,
+        mcversion      : minecraft_version,
+        mod_id         : mod_id,
+        mod_name       : mod_name,
+        mod_authors    : mod_authors,
+        mod_credits    : mod_credits,
+        mod_homepage   : mod_homepage,
+        mod_description: mod_description
+    ]
+    inputs.properties expandProps
+    filesMatching(['mcmod.info', 'pack.mcmeta']) {
+        expand expandProps
+    }
+}
+
 // Example for how to get properties into the manifest for reading by the runtime..
 jar {
+    from('LICENSE')
+    from('README.md')
     manifest {
         attributes([
-            "Specification-Title": mod_archivebasename,
-            "Specification-Vendor": mod_author,
-            "Specification-Version": "1", // We are version 1 of ourselves
+            "Specification-Title": mod_id,
+            "Specification-Vendor": mod_authors,
+            "Specification-Version": "1",
             "Implementation-Title": project.name,
             "Implementation-Version": "${version}",
-            "Implementation-Vendor": mod_author,
+            "Implementation-Vendor": mod_authors,
             "Implementation-Timestamp": new Date().format("yyyy-MM-dd'T'HH:mm:ssZ")
         ])
     }

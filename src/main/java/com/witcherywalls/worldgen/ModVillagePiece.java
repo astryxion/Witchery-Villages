@@ -3,6 +3,7 @@ package com.witcherywalls.worldgen;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockFence;
 import net.minecraft.block.BlockLog;
+import net.minecraft.block.BlockTorch;
 import net.minecraft.block.state.IBlockState;
 import net.minecraft.init.Blocks;
 import net.minecraft.util.EnumFacing;
@@ -40,20 +41,74 @@ public abstract class ModVillagePiece extends StructureVillagePieces.Village
     }
 
     /**
-     * Places a wall torch using Witchery's metadata-0 convention: facing is derived from
-     * {@link #coordBaseMode} only (see 1.7.10 StructureComponent.func_151553_a for torches).
-     * Must not go through {@link #setBlockState} or the facing is rotated twice and pops off.
+     * Places a standing or wall torch from neighboring support, matching 1.20.1
+     * VillagePieceBuilder.torchStateFor. Written directly so StructureComponent
+     * does not rotate the facing a second time.
      */
     protected void placeTorch(World world, int x, int y, int z, StructureBoundingBox box)
     {
-        EnumFacing facing = getCoordBaseMode();
-        int meta = facing != null ? facing.getHorizontalIndex() + 1 : 0;
-
         BlockPos pos = new BlockPos(getXWithOffset(x, z), getYWithOffset(y), getZWithOffset(x, z));
-        if (box.isVecInside(pos))
+        if (!box.isVecInside(pos))
         {
-            world.setBlockState(pos, Blocks.TORCH.getStateFromMeta(meta), 2);
+            return;
         }
+        world.setBlockState(pos, torchStateFor(world, pos), 2);
+    }
+
+    private IBlockState torchStateFor(World world, BlockPos pos)
+    {
+        if (isTorchSupport(world, pos.down(), EnumFacing.UP))
+        {
+            return Blocks.TORCH.getDefaultState();
+        }
+
+        EnumFacing preferred = preferredTorchFacing();
+        if (isTorchSupport(world, pos.offset(preferred.getOpposite()), preferred))
+        {
+            return Blocks.TORCH.getDefaultState().withProperty(BlockTorch.FACING, preferred);
+        }
+
+        for (EnumFacing direction : EnumFacing.HORIZONTALS)
+        {
+            if (isTorchSupport(world, pos.offset(direction.getOpposite()), direction))
+            {
+                return Blocks.TORCH.getDefaultState().withProperty(BlockTorch.FACING, direction);
+            }
+        }
+
+        return Blocks.TORCH.getDefaultState();
+    }
+
+    private EnumFacing preferredTorchFacing()
+    {
+        EnumFacing facing = getCoordBaseMode();
+        if (facing == EnumFacing.SOUTH)
+        {
+            return EnumFacing.EAST;
+        }
+        if (facing == EnumFacing.WEST)
+        {
+            return EnumFacing.WEST;
+        }
+        if (facing == EnumFacing.NORTH)
+        {
+            return EnumFacing.SOUTH;
+        }
+        return EnumFacing.NORTH;
+    }
+
+    private static boolean isTorchSupport(World world, BlockPos pos, EnumFacing face)
+    {
+        IBlockState state = world.getBlockState(pos);
+        if (state.getBlock().isAir(state, world, pos))
+        {
+            return false;
+        }
+        if (face == EnumFacing.UP)
+        {
+            return state.isSideSolid(world, pos, EnumFacing.UP) || state.getBlock().canPlaceTorchOnTop(state, world, pos);
+        }
+        return state.isSideSolid(world, pos, face);
     }
 
     /** Places a biome-adjusted block type with structure rotation applied to metadata. */

@@ -1,6 +1,7 @@
 package com.witcherywalls.worldgen;
 
 import com.witcherywalls.WitcheryWallsMod;
+import com.witcherywalls.config.WitcheryWallsConfig;
 import com.witcherywalls.entity.EntityVillageGuard;
 import net.minecraft.block.Block;
 import net.minecraft.block.material.Material;
@@ -407,6 +408,11 @@ public final class VillageWallGenerator
 
     private static void spawnGuard(World world, int x, int y, int z)
     {
+        if (!WitcheryWallsConfig.spawnVillageGuards())
+        {
+            return;
+        }
+
         EntityVillageGuard guard = new EntityVillageGuard(world);
         guard.setPosition(x + 0.5D, y, z + 0.5D);
         guard.onInitialSpawn(world.getDifficultyForLocation(new BlockPos(x, y, z)), null);

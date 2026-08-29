@@ -1,6 +1,8 @@
 package com.witcherywalls.entity;
 
-import com.witcherywalls.entity.ai.EntityAIDefendVillageGeneric;
+import com.witcherywalls.entity.ai.EntityAIDefendVillageGuard;
+import com.witcherywalls.entity.ai.EntityAIGuardHurtByTarget;
+import com.witcherywalls.entity.ai.EntityAIVillageGuardRanged;
 import net.minecraft.enchantment.EnchantmentHelper;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityLiving;
@@ -9,8 +11,13 @@ import net.minecraft.entity.IEntityLivingData;
 import net.minecraft.entity.IRangedAttackMob;
 import net.minecraft.entity.SharedMonsterAttributes;
 import net.minecraft.entity.ai.EntityAIAttackMelee;
-import net.minecraft.entity.ai.EntityAIAttackRanged;
-import net.minecraft.entity.ai.EntityAIHurtByTarget;
+import net.minecraft.entity.monster.AbstractIllager;
+import net.minecraft.entity.monster.EntityIronGolem;
+import net.minecraft.entity.monster.EntityPigZombie;
+import net.minecraft.entity.monster.EntityWitch;
+import net.minecraft.entity.monster.EntityZombie;
+import net.minecraft.entity.passive.EntityTameable;
+import net.minecraft.entity.passive.EntityVillager;
 import net.minecraft.entity.ai.EntityAILookIdle;
 import net.minecraft.entity.ai.EntityAIMoveThroughVillage;
 import net.minecraft.entity.ai.EntityAIMoveTowardsRestriction;
@@ -37,19 +44,23 @@ import net.minecraft.network.datasync.DataSerializers;
 import net.minecraft.network.datasync.EntityDataManager;
 import net.minecraft.util.DamageSource;
 import net.minecraft.util.SoundEvent;
+import net.minecraft.util.math.AxisAlignedBB;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.MathHelper;
+import net.minecraft.util.math.Vec3d;
 import net.minecraft.util.text.translation.I18n;
+import net.minecraft.pathfinding.PathNavigateGround;
 import net.minecraft.village.Village;
 import net.minecraft.world.DifficultyInstance;
 import net.minecraft.world.World;
+
+import java.util.List;
 
 public class EntityVillageGuard extends EntityCreature implements IRangedAttackMob
 {
     private static final DataParameter<Byte> GUARD_TYPE = EntityDataManager.createKey(EntityVillageGuard.class, DataSerializers.BYTE);
 
-    private final EntityAIAttackRanged aiArrowAttack = new EntityAIAttackRanged(this, 1.0D, 20, 15.0F);
-    private final EntityAIAttackMelee aiAttackOnCollide = new EntityAIAttackMelee(this, 1.2D, false);
+    private final EntityAIVillageGuardRanged aiArrowAttack = new EntityAIVillageGuardRanged(this, 1.0D, 20, 15.0F);
     private int homeCheckTimer;
     private Village villageObj;
     private boolean swingingArms;
@@ -58,24 +69,46 @@ public class EntityVillageGuard extends EntityCreature implements IRangedAttackM
     {
         super(world);
         setSize(0.6F, 1.8F);
+        if (getNavigator() instanceof PathNavigateGround)
+        {
+            PathNavigateGround navigation = (PathNavigateGround) getNavigator();
+            navigation.setBreakDoors(true);
+            navigation.setEnterDoors(true);
+        }
 
         tasks.addTask(1, new EntityAISwimming(this));
+        tasks.addTask(3, aiArrowAttack);
+        tasks.addTask(3, new EntityAIAttackMelee(this, 1.2D, true)
+        {
+            @Override
+            public boolean shouldExecute()
+            {
+                ItemStack held = EntityVillageGuard.this.getHeldItemMainhand();
+                return EntityVillageGuard.this.getAttackTarget() != null
+                        && (held.isEmpty() || held.getItem() != Items.BOW)
+                        && super.shouldExecute();
+            }
+        });
+        tasks.addTask(4, new EntityAIOpenDoor(this, true));
         tasks.addTask(6, new EntityAIMoveThroughVillage(this, 0.6D, true));
         tasks.addTask(7, new EntityAIMoveTowardsRestriction(this, 1.0D));
         tasks.addTask(8, new EntityAIRestrictOpenDoor(this));
-        tasks.addTask(9, new EntityAIOpenDoor(this, true));
-        tasks.addTask(10, new EntityAIWander(this, 1.0D));
+        tasks.addTask(10, new EntityAIWander(this, 0.6D));
+        tasks.addTask(11, new EntityAIWatchClosest(this, EntityVillager.class, 8.0F));
         tasks.addTask(11, new EntityAIWatchClosest(this, EntityPlayer.class, 8.0F));
         tasks.addTask(12, new EntityAILookIdle(this));
 
-        targetTasks.addTask(1, new EntityAIDefendVillageGeneric(this));
-        targetTasks.addTask(2, new EntityAIHurtByTarget(this, true));
-        targetTasks.addTask(3, new EntityAINearestAttackableTarget<>(this, EntityLivingBase.class, 0, false, true, this::isHostileTarget));
+        targetTasks.addTask(2, new EntityAIGuardHurtByTarget(this));
+        targetTasks.addTask(3, new EntityAINearestAttackableTarget<>(this, EntityWitch.class, true));
+        targetTasks.addTask(4, new EntityAINearestAttackableTarget<>(this, AbstractIllager.class, true));
+        targetTasks.addTask(5, new EntityAIDefendVillageGuard(this));
+        targetTasks.addTask(5, new EntityAINearestAttackableTarget<>(this, EntityZombie.class, 10, true, true,
+                zombie -> !(zombie instanceof EntityPigZombie)));
+        targetTasks.addTask(6, new EntityAINearestAttackableTarget<>(this, EntityLiving.class, 5, true, true, this::isHostileTarget));
 
         if (world != null && !world.isRemote)
         {
             initEquipment();
-            setCombatTask();
         }
 
         experienceValue = 5;
@@ -96,23 +129,32 @@ public class EntityVillageGuard extends EntityCreature implements IRangedAttackM
 
     public boolean isHostileTarget(EntityLivingBase entity)
     {
-        if (entity instanceof IMob && !(entity instanceof EntityCreeper))
-        {
-            return true;
-        }
+        return entity instanceof IMob
+                && !(entity instanceof EntityCreeper)
+                && !(entity instanceof EntityPigZombie)
+                && isValidGuardTarget(entity);
+    }
 
-        if (villageObj != null && entity instanceof EntityPlayer)
+    public boolean isValidGuardTarget(EntityLivingBase entity)
+    {
+        if (entity == null || entity == this || !entity.isEntityAlive())
+        {
+            return false;
+        }
+        if (isVillageDefender(entity) || entity instanceof EntityCreeper)
+        {
+            return false;
+        }
+        if (entity instanceof EntityTameable && ((EntityTameable) entity).isTamed())
+        {
+            return false;
+        }
+        if (entity instanceof EntityPlayer)
         {
             EntityPlayer player = (EntityPlayer) entity;
-            EntityLivingBase mount = player.getRevengeTarget();
-
-            if (mount instanceof EntityPlayer && villageObj.getPlayerReputation(((EntityPlayer) mount).getUniqueID()) <= -15)
-            {
-                return true;
-            }
+            return !player.isSpectator() && !player.capabilities.isCreativeMode;
         }
-
-        return false;
+        return true;
     }
 
     public Village getVillage()
@@ -294,21 +336,29 @@ public class EntityVillageGuard extends EntityCreature implements IRangedAttackM
         return livingdata;
     }
 
-    public void setCombatTask()
+    public boolean isVillageDefender(Entity entity)
     {
-        tasks.removeTask(aiAttackOnCollide);
-        tasks.removeTask(aiArrowAttack);
+        return entity instanceof EntityVillageGuard || entity instanceof EntityVillager || entity instanceof EntityIronGolem;
+    }
 
-        ItemStack held = getHeldItemMainhand();
-
-        if (!held.isEmpty() && held.getItem() == Items.BOW)
+    public boolean friendlyInLineOfSight()
+    {
+        Vec3d look = this.getLook(1.0F);
+        AxisAlignedBB aabb = this.getEntityBoundingBox().expand(look.x * 6.0D, look.y * 6.0D, look.z * 6.0D).grow(1.0D);
+        List<Entity> entities = this.world.getEntitiesWithinAABBExcludingEntity(this, aabb);
+        for (Entity entity : entities)
         {
-            tasks.addTask(4, aiArrowAttack);
+            if (entity == this.getAttackTarget() || !this.isVillageDefender(entity))
+            {
+                continue;
+            }
+            Vec3d toSelf = new Vec3d(this.posX - entity.posX, this.posY - entity.posY, this.posZ - entity.posZ).normalize();
+            if (toSelf.dotProduct(this.getLookVec()) < 0.0D && this.canEntityBeSeen(entity))
+            {
+                return true;
+            }
         }
-        else
-        {
-            tasks.addTask(4, aiAttackOnCollide);
-        }
+        return false;
     }
 
     @Override
@@ -380,8 +430,6 @@ public class EntityVillageGuard extends EntityCreature implements IRangedAttackM
         {
             setGuardType(compound.getByte("GuardType"));
         }
-
-        setCombatTask();
     }
 
     @Override
@@ -389,17 +437,6 @@ public class EntityVillageGuard extends EntityCreature implements IRangedAttackM
     {
         super.writeEntityToNBT(compound);
         compound.setByte("GuardType", (byte) getGuardType());
-    }
-
-    @Override
-    public void setItemStackToSlot(EntityEquipmentSlot slotIn, ItemStack stack)
-    {
-        super.setItemStackToSlot(slotIn, stack);
-
-        if (!world.isRemote && slotIn == EntityEquipmentSlot.MAINHAND)
-        {
-            setCombatTask();
-        }
     }
 
     @Override
@@ -411,6 +448,48 @@ public class EntityVillageGuard extends EntityCreature implements IRangedAttackM
     @Override
     public boolean canAttackClass(Class<? extends EntityLivingBase> cls)
     {
-        return cls != EntityCreeper.class && getClass() != cls;
+        return cls != EntityCreeper.class
+                && cls != EntityVillageGuard.class
+                && cls != EntityVillager.class
+                && cls != EntityIronGolem.class
+                && super.canAttackClass(cls);
+    }
+
+    @Override
+    public void setAttackTarget(EntityLivingBase target)
+    {
+        if (target != null && !isValidGuardTarget(target))
+        {
+            return;
+        }
+        super.setAttackTarget(target);
+    }
+
+    @Override
+    public boolean isOnSameTeam(Entity entity)
+    {
+        if (isVillageDefender(entity))
+        {
+            return true;
+        }
+        if (entity instanceof EntityTameable && ((EntityTameable) entity).isTamed())
+        {
+            return true;
+        }
+        return super.isOnSameTeam(entity);
+    }
+
+    @Override
+    protected void collideWithEntity(Entity entity)
+    {
+        if (entity instanceof EntityLiving)
+        {
+            EntityLiving living = (EntityLiving) entity;
+            if (isVillageDefender(living.getAttackTarget()))
+            {
+                setAttackTarget(living);
+            }
+        }
+        super.collideWithEntity(entity);
     }
 }

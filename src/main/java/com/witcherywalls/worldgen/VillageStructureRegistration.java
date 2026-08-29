@@ -1,6 +1,7 @@
 package com.witcherywalls.worldgen;
 
 import com.witcherywalls.WitcheryWallsMod;
+import com.witcherywalls.config.WitcheryWallsConfig;
 import net.minecraft.util.EnumFacing;
 import net.minecraft.world.biome.Biome;
 import net.minecraft.world.gen.structure.MapGenStructureIO;
@@ -17,9 +18,8 @@ import java.util.Random;
 public final class VillageStructureRegistration
 {
     private static final int GUARD_TOWER_WEIGHT = 4;
-    private static final int GUARD_TOWER_ROLLS = 20;
-    private static final int GUARD_TOWER_MIN = 0;
-    private static final int GUARD_TOWER_MAX = 1;
+    private static final int GUARD_TOWER_MIN = 1;
+    private static final int GUARD_TOWER_MAX = 3;
 
     private static final int TOWN_WALL_WEIGHT = 100;
     private static final int TOWN_KEEP_WEIGHT = 100;
@@ -34,13 +34,9 @@ public final class VillageStructureRegistration
         MapGenStructureIO.registerStructureComponent(ComponentVillageKeep.class, WitcheryWallsMod.MODID + ":village_keep");
         MapGenStructureIO.registerStructureComponent(ComponentVillageWatchTower.class, WitcheryWallsMod.MODID + ":village_watch_tower");
 
-        registerComponent(VillageWallPiece.class, TOWN_WALL_WEIGHT, 0, 1);
-        registerComponent(ComponentVillageKeep.class, TOWN_KEEP_WEIGHT, 0, 1);
-
-        for (int i = 0; i < GUARD_TOWER_ROLLS; i++)
-        {
-            registerComponent(ComponentVillageWatchTower.class, GUARD_TOWER_WEIGHT, GUARD_TOWER_MIN, GUARD_TOWER_MAX);
-        }
+        registerComponent(VillageWallPiece.class, TOWN_WALL_WEIGHT, 1, 1);
+        registerComponent(ComponentVillageKeep.class, TOWN_KEEP_WEIGHT, 1, 1);
+        registerComponent(ComponentVillageWatchTower.class, GUARD_TOWER_WEIGHT, GUARD_TOWER_MIN, GUARD_TOWER_MAX);
     }
 
     public static void init()
@@ -86,8 +82,29 @@ public final class VillageStructureRegistration
         @Override
         public StructureVillagePieces.PieceWeight getVillagePieceWeight(Random random, int size)
         {
+            if (!WitcheryWallsConfig.roll(random, chanceFor(pieceClass)))
+            {
+                return new StructureVillagePieces.PieceWeight(pieceClass, weight, 0);
+            }
             int count = max <= min ? min : min + random.nextInt(max - min + 1);
             return new StructureVillagePieces.PieceWeight(pieceClass, weight, count);
+        }
+
+        private static int chanceFor(Class<?> clazz)
+        {
+            if (clazz == VillageWallPiece.class)
+            {
+                return WitcheryWallsConfig.generation.wallSpawnChance;
+            }
+            if (clazz == ComponentVillageKeep.class)
+            {
+                return WitcheryWallsConfig.generation.keepSpawnChance;
+            }
+            if (clazz == ComponentVillageWatchTower.class)
+            {
+                return WitcheryWallsConfig.generation.watchTowerSpawnChance;
+            }
+            return 100;
         }
 
         @Override
