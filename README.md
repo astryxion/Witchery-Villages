@@ -2,8 +2,6 @@
 
 Fortifies generated villages with perimeter walls, town keeps, and guard towers, and stations villager guards to defend them. Highly configurable.
 
-This is the Minecraft Forge 1.12.2 edition.
-
 ## Attribution
 
 **Author:** Astryxion
