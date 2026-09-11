@@ -1,5 +1,6 @@
 package com.witcherywalls.worldgen;
 
+import com.witcherywalls.config.WitcheryWallsConfig;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
@@ -15,8 +16,7 @@ import java.util.Set;
 
 public class VillageWallSavedData extends SavedData
 {
-    private static final String DATA_NAME = "witcherywalls_processed_villages_v10";
-    private static final int VILLAGE_DEDUP_RADIUS = 80;
+    private static final String DATA_NAME = "witcherywalls_processed_villages_v11";
 
     private final Set<Long> processedCenters = new HashSet<>();
     private final List<VillageWallPlan> plans = new ArrayList<>();
@@ -55,7 +55,8 @@ public class VillageWallSavedData extends SavedData
 
     public boolean isNearProcessed(BlockPos pos)
     {
-        long radiusSquared = (long) VILLAGE_DEDUP_RADIUS * VILLAGE_DEDUP_RADIUS;
+        int radius = WitcheryWallsConfig.villageWallDedupRadius();
+        long radiusSquared = (long) radius * radius;
 
         for (long stored : processedCenters)
         {

@@ -39,6 +39,7 @@ public class WitcheryWallsMod
         modBus.addListener(this::addAttributes);
         modBus.addListener(this::addCreativeTabs);
         modBus.addListener(this::onConfigLoad);
+        modBus.addListener(this::onConfigReload);
 
         IEventBus forgeBus = MinecraftForge.EVENT_BUS;
         forgeBus.addListener(this::onServerTick);
@@ -52,10 +53,16 @@ public class WitcheryWallsMod
 
     private void onConfigLoad(final ModConfigEvent.Loading event)
     {
+        WitcheryWallsConfig.captureConfig(event.getConfig());
         if (event.getConfig().getSpec() == WitcheryWallsConfig.COMMON_SPEC)
         {
             WitcheryWallsConfig.applyGuardCompatibilityDefault(event.getConfig());
         }
+    }
+
+    private void onConfigReload(final ModConfigEvent.Reloading event)
+    {
+        WitcheryWallsConfig.captureConfig(event.getConfig());
     }
 
     private void addAttributes(final EntityAttributeCreationEvent event)

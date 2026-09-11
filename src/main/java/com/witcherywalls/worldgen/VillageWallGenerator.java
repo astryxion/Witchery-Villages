@@ -315,34 +315,33 @@ public final class VillageWallGenerator
             }
         }
 
-        for (int smooth = 0; smooth < 6; smooth++)
+        // Single neighbor pass (1.7.10 style). Multi-pass smoothing used to
+        // ramp long wall stretches up onto tree canopies.
+        for (int k = 1; k < plan.grid.length - 1; k++)
         {
-            for (int k = 1; k < plan.grid.length - 1; k++)
+            for (int z = 1; z < plan.grid[k].length - 1; z++)
             {
-                for (int z = 1; z < plan.grid[k].length - 1; z++)
+                if (plan.grid[k][z] < 2 || !plan.scanned[k][z] || plan.placed[k][z])
                 {
-                    if (plan.grid[k][z] < 2 || !plan.scanned[k][z] || plan.placed[k][z])
-                    {
-                        continue;
-                    }
-
-                    int near = maxNeighborHeight(plan.grid, plan.heights, k, z);
-                    if (near == Integer.MIN_VALUE)
-                    {
-                        continue;
-                    }
-
-                    int startY = plan.heights[k][z];
-                    if (near > startY)
-                    {
-                        startY = near - 1;
-                    }
-                    else if (near < startY)
-                    {
-                        startY = near + 1;
-                    }
-                    plan.heights[k][z] = startY;
+                    continue;
                 }
+
+                int near = maxNeighborHeight(plan.grid, plan.heights, k, z);
+                if (near == Integer.MIN_VALUE)
+                {
+                    continue;
+                }
+
+                int startY = plan.heights[k][z];
+                if (near > startY)
+                {
+                    startY = near - 1;
+                }
+                else if (near < startY)
+                {
+                    startY = near + 1;
+                }
+                plan.heights[k][z] = startY;
             }
         }
     }
@@ -566,17 +565,16 @@ public final class VillageWallGenerator
         return oceanFloor;
     }
 
+    /**
+     * Find solid ground under a wall column by scanning down from the village
+     * Y, matching Witchery 1.7.10. Starting from WORLD_SURFACE_WG caused walls
+     * to treat tree canopies as terrain and "jump" over foliage.
+     */
     private static int findFoundationY(Level level, int dx, int dz, int yCoord)
     {
-        int surface = level.getHeight(Heightmap.Types.WORLD_SURFACE_WG, dx, dz);
-        int top = Math.min(surface + 2, yCoord + 16);
-        int bottom = Math.max(level.getMinBuildHeight() + 1, Math.min(yCoord, surface) - 40);
-
-        if (top < bottom)
-        {
-            top = surface;
-            bottom = Math.max(level.getMinBuildHeight() + 1, surface - 16);
-        }
+        int minY = level.getMinBuildHeight() + 1;
+        int top = Math.max(yCoord, minY);
+        int bottom = minY;
 
         BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
 
@@ -603,7 +601,8 @@ public final class VillageWallGenerator
             }
         }
 
-        return Math.max(bottom, surface - 1);
+        int oceanFloor = level.getHeight(Heightmap.Types.OCEAN_FLOOR_WG, dx, dz);
+        return Math.max(bottom, oceanFloor);
     }
 
     private static int maxNeighborFoundation(byte[][] grid, int[][] foundations, int k, int z)
@@ -697,7 +696,11 @@ public final class VillageWallGenerator
             return true;
         }
 
-        return state.is(BlockTags.LEAVES) || state.is(BlockTags.REPLACEABLE_BY_TREES);
+        // 1.7.10 treated wood/leaves/plants as non-foundation so walls sit on dirt,
+        // not on trunks. Logs must be replaceable here or findFoundationY climbs trees.
+        return state.is(BlockTags.LEAVES)
+                || state.is(BlockTags.LOGS)
+                || state.is(BlockTags.REPLACEABLE_BY_TREES);
     }
 
     private static void setBlock(Level level, int x, int y, int z, BlockState state, boolean replaceSoftBlocks)

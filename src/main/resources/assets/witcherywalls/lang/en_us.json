@@ -3,5 +3,21 @@
   "entity.witcherywalls.village_guard": "Village Guard",
   "item.witcherywalls.village_guard_spawn_egg": "Village Guard Spawn Egg",
   "message.witcherywalls.guards_disabled": "The guards are currently disabled",
-  "message.witcherywalls.item_disabled": "This item is currently disabled"
+  "message.witcherywalls.item_disabled": "This item is currently disabled",
+  "config.witcherywalls.title": "Witchery Walls Config",
+  "config.witcherywalls.wall_spawn_chance": "Wall spawn chance %",
+  "config.witcherywalls.wall_spawn_chance.tooltip": "Chance for a village to generate town walls (0-100).",
+  "config.witcherywalls.keep_spawn_chance": "Keep spawn chance %",
+  "config.witcherywalls.keep_spawn_chance.tooltip": "Chance for a village to generate a town keep (0-100).",
+  "config.witcherywalls.watch_tower_spawn_chance": "Watch tower chance %",
+  "config.witcherywalls.watch_tower_spawn_chance.tooltip": "Chance for a village to generate watch towers (0-100).",
+  "config.witcherywalls.dedup_radius": "Wall spacing radius",
+  "config.witcherywalls.dedup_radius.tooltip": "Minimum distance between village centers that get walls (40-512). Raise this in dense dimensions to reduce overlapping rings.",
+  "config.witcherywalls.structure_blacklist": "Structure blacklist",
+  "config.witcherywalls.structure_blacklist.hint": "minecraft:village_plains, ...",
+  "config.witcherywalls.structure_blacklist.tooltip": "Comma-separated structure IDs that never get walls, keeps, or towers. Example: minecraft:village_plains",
+  "config.witcherywalls.spawn_guards": "Spawn Witchery guards",
+  "config.witcherywalls.spawn_guards.tooltip": "Spawn Witchery village guards on keeps, towers, walls, and streets.",
+  "config.witcherywalls.invalid_number": "Check number ranges and try again.",
+  "config.witcherywalls.invalid_structure_id": "Blacklist entries must be valid structure IDs (e.g. minecraft:village_plains)."
 }

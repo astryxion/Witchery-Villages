@@ -13,7 +13,7 @@ authors="${mod_authors}"
 description='''
 Fortifies generated villages with perimeter walls, town keeps, and guard towers, and stations villager guards to defend them.
 
-Highly configurable spawn chances for walls, keeps, towers, and guards. Compatible with Guard Villagers so you can use either set of guards, or both.
+Highly configurable spawn chances for walls, keeps, towers, and guards, with an in-game config screen and structure ID blacklist. Compatible with Guard Villagers so you can use either set of guards, or both.
 '''
 
 [[dependencies.${mod_id}]]

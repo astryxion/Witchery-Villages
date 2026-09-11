@@ -1,5 +1,6 @@
 package com.witcherywalls.worldgen;
 
+import com.witcherywalls.config.WitcheryWallsConfig;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
@@ -12,7 +13,6 @@ public final class VillageWallScheduler
 {
     private static final List<PendingGeneration> PENDING = new ArrayList<>();
     private static final int DELAY_TICKS = 100;
-    private static final int VILLAGE_DEDUP_RADIUS = 80;
     private static final int MAX_STARTS_PER_TICK = 1;
 
     private VillageWallScheduler()
@@ -26,7 +26,7 @@ public final class VillageWallScheduler
             return;
         }
 
-        long radiusSquared = (long) VILLAGE_DEDUP_RADIUS * VILLAGE_DEDUP_RADIUS;
+        long radiusSquared = (long) WitcheryWallsConfig.villageWallDedupRadius() * WitcheryWallsConfig.villageWallDedupRadius();
         for (PendingGeneration pending : PENDING)
         {
             if (pending.level == level && pending.center.distSqr(center) <= radiusSquared)

@@ -39,8 +39,16 @@ public final class VillageWallService
             return true;
         }
 
+        if (WitcheryWallsConfig.isStructureBlacklisted(located.structureId()))
+        {
+            data.markProcessed(center);
+            WitcheryWallsMod.getLogger().info("Skipping blacklisted village structure {} at {}",
+                    located.structureId(), center);
+            return true;
+        }
+
         List<VillageWallGenerator.StructureBounds> bounds = located.bounds();
-        int groundY = center.getY();
+        int groundY = located.groundY();
         boolean desert = located.desert();
         Random chanceRandom = new Random(level.getSeed() ^ center.asLong() ^ 0x57414C4CL);
         boolean placeWall = WitcheryWallsConfig.roll(chanceRandom, WitcheryWallsConfig.WALL_SPAWN_CHANCE);

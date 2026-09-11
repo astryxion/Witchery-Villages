@@ -146,7 +146,6 @@ public final class VillagePathScanner
         }
 
         return state.is(BlockTags.PLANKS)
-                || state.is(BlockTags.LOGS)
                 || state.is(BlockTags.WOODEN_STAIRS)
                 || state.is(BlockTags.WOODEN_SLABS)
                 || state.is(Blocks.GLASS_PANE)

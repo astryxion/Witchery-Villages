@@ -74,11 +74,12 @@ public final class VillageStructureLocator
         }
 
         int groundY = yCount == 0 ? center.getY() : (int) (ySum / yCount);
-        VillagePalette palette = VillagePalette.fromVillageStructure(level.registryAccess()
+        ResourceLocation structureId = level.registryAccess()
                 .registryOrThrow(Registries.STRUCTURE)
-                .getKey(start.getStructure()));
+                .getKey(start.getStructure());
+        VillagePalette palette = VillagePalette.fromVillageStructure(structureId);
         return new LocatedVillage(bounds, groundY, palette.type() == VillagePalette.Type.DESERT,
-                start.getBoundingBox(), palette, streetBoxes, occupiedBoxes, isAbandonedVillage(start));
+                start.getBoundingBox(), palette, streetBoxes, occupiedBoxes, isAbandonedVillage(start), structureId);
     }
 
     public static StructureStart findVillageStart(ServerLevel level, BlockPos center)
@@ -154,7 +155,7 @@ public final class VillageStructureLocator
     public record LocatedVillage(List<VillageWallGenerator.StructureBounds> bounds, int groundY, boolean desert,
                                 BoundingBox villageBox, VillagePalette palette,
                                 List<BoundingBox> streetBoxes, List<BoundingBox> occupiedBoxes,
-                                boolean abandoned)
+                                boolean abandoned, ResourceLocation structureId)
     {
     }
 }
